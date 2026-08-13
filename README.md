@@ -6,6 +6,20 @@ Built with **Rust** and **Ratatui**, Matrix provides a seamless, keyboard-centri
 
 ![Matrix TUI screenshot](docs/screenshot.png)
 
+### In action
+
+| Projects (groups, live status) | Dashboard (system + services) |
+|---|---|
+| ![Projects view](docs/screenshots/projects.png) | ![Dashboard view](docs/screenshots/dashboard.png) |
+
+| Logs (streaming, sources sidebar) | Command palette |
+|---|---|
+| ![Logs view](docs/screenshots/logs.png) | ![Command palette](docs/screenshots/command-mode.png) |
+
+| Detect projects (language grouping) | Env editor |
+|---|---|
+| ![Detect modal](docs/screenshots/detect.png) | ![Env editor](docs/screenshots/env-editor.png) |
+
 ---
 
 ## ✨ Features
