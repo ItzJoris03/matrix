@@ -1,0 +1,19 @@
+# Rust
+/target
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Config
+matrix.json
+.env
+.env.*
+
+# Logs
+*.log
+
+# Gemini
+.gemini/
