@@ -74,6 +74,7 @@ async fn main() -> anyhow::Result<()> {
         projects: vec![],
         templates: vec![],
         groups: vec![],
+        onboarded: false,
     });
     // Relative paths in the config resolve against the config file's directory,
     // so the same file works from any launch location.
@@ -92,6 +93,7 @@ async fn main() -> anyhow::Result<()> {
         manager.clone(),
         config_path.to_string_lossy().into_owned(),
         toast_tx.clone(),
+        config.onboarded,
     );
 
     // Background update check: query GitHub once, non-blocking. When a newer

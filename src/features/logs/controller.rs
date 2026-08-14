@@ -77,7 +77,7 @@ impl LogsController {
             KeyCode::Char('c') => {
                 return Self::copy_selection(model, manager, clipboard);
             }
-            KeyCode::Char('h') => {
+            KeyCode::Char('H') => {
                 let active_sources = Self::get_active_sources(manager);
                 if let Some(LogSelectionItem::Source(active_idx)) =
                     items.get(model.log_sidebar_index)

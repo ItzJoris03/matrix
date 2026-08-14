@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap},
     Frame,
 };
 
@@ -32,16 +32,30 @@ impl App {
         self.render_header(frame, chunks[0]);
         self.render_body(frame, chunks[1]);
 
+        // ── FOOTER status bar ──
+        self.render_footer(frame, chunks[2]);
+
         // ── TOASTS (live notifications, bottom-right) ──
         if !self.toasts.is_empty() {
             self.render_toasts(frame);
         }
 
-        // ── UPDATE AVAILABLE (small notification, bottom-right) ──
+        // ── OVERLAY LAYER ── drawn after header/body/footer so each modal's
+        // scrim dims the whole UI behind it and the panel reads as a raised
+        // card. Order = stacking: palette, then detect, then update card.
+        if self.is_command_mode {
+            self.render_command_palette(frame);
+        }
+        if self.show_detect_modal {
+            self.render_detect_modal(frame);
+        }
         self.render_update_modal(frame);
 
-        // ── FOOTER status bar ──
-        self.render_footer(frame, chunks[2]);
+        // ── FIRST-LAUNCH WELCOME (drawn last: scrim dims everything else so
+        // the guidance screen is the only focus) ──
+        if self.show_onboarding {
+            self.render_onboarding_modal(frame);
+        }
     }
 
     fn render_header(&self, frame: &mut Frame, area: Rect) {
@@ -185,20 +199,22 @@ impl App {
             }
             _ => {}
         }
+    }
 
-        // ── COMMAND PALETTE (command mode only) ──
-        if self.is_command_mode {
-            self.render_command_palette(frame);
-        }
-
-        // ── DETECT-PROJECTS MODAL ──
-        if self.show_detect_modal {
-            self.render_detect_modal(frame);
-        }
+    /// Dim the whole frame behind a modal overlay so it is the only focus.
+    /// Terminals have no alpha — a solid dark fill IS the scrim. Call at the
+    /// START of every modal render, before the panel's `Clear` + block.
+    fn draw_scrim(&self, frame: &mut Frame) {
+        let scrim = Paragraph::new("").style(Style::default().bg(SCRIM));
+        frame.render_widget(scrim, frame.size());
     }
 
     fn render_command_palette(&self, frame: &mut Frame) {
         let a = frame.size();
+
+        // Scrim dims everything behind the palette; the panel carries its own
+        // background so it reads as a raised card.
+        self.draw_scrim(frame);
 
         // ── Responsive geometry, but a FIXED panel height per terminal size.
         // The height depends ONLY on the terminal, never on the match count —
@@ -249,6 +265,7 @@ impl App {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(border_color))
+            .style(Style::default().bg(PANEL_BG))
             .title(Span::styled(title, Style::default().fg(border_color)))
             .title_bottom(Span::styled(hint, Style::default().fg(TEXT_DIM)));
 
@@ -286,7 +303,10 @@ impl App {
                 Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
             ),
         ]);
-        frame.render_widget(Paragraph::new(input_line), input_area);
+        frame.render_widget(
+            Paragraph::new(input_line).style(Style::default().bg(PANEL_BG)),
+            input_area,
+        );
 
         // Real terminal cursor sits on the block cursor so it blinks where you type.
         let cursor_x = input_area.x + 3 + before.chars().count() as u16;
@@ -363,7 +383,10 @@ impl App {
                 .collect()
         };
 
-        frame.render_widget(List::new(items), list_area);
+        frame.render_widget(
+            List::new(items).style(Style::default().bg(PANEL_BG)),
+            list_area,
+        );
     }
 
     fn render_sidebar(&self, frame: &mut Frame, area: Rect) {
@@ -476,10 +499,14 @@ impl App {
             ),
             Span::styled(" Enter start/stop ", Style::default().fg(TEXT_DIM)),
             Span::styled(" r restart ", Style::default().fg(TEXT_DIM)),
-            Span::styled(" h host ", Style::default().fg(TEXT_DIM)),
+            Span::styled(" H host ", Style::default().fg(TEXT_DIM)),
             Span::styled(" p dev/prod ", Style::default().fg(TEXT_DIM)),
             Span::styled(" o open ", Style::default().fg(TEXT_DIM)),
             Span::styled(" c copy ", Style::default().fg(TEXT_DIM)),
+            Span::styled(
+                " h help ",
+                Style::default().fg(PURPLE).add_modifier(Modifier::BOLD),
+            ),
         ])
     }
 
@@ -490,7 +517,12 @@ impl App {
         if self.update_dismissed {
             return;
         }
+        if self.show_onboarding {
+            return; // the welcome covers everything anyway
+        }
         let area = frame.size();
+        // Scrim dims the UI behind the card so the update is the only focus.
+        self.draw_scrim(frame);
         // Small notification card, bottom-right (above the toast stack).
         // Deliberately minimal: just "update available". The changelog lives
         // on GitHub — `u` opens it and keeps the card visible.
@@ -509,11 +541,12 @@ impl App {
             )),
         ];
         let p = Paragraph::new(lines)
-            .style(Style::default().fg(TEXT))
+            .style(Style::default().fg(TEXT).bg(PANEL_BG))
             .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(YELLOW))
+                    .style(Style::default().bg(PANEL_BG))
                     .title(Span::styled(
                         title,
                         Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
@@ -521,6 +554,208 @@ impl App {
             );
         frame.render_widget(Clear, rect);
         frame.render_widget(p, rect);
+    }
+
+    /// Full first-launch guidance screen. A scrim dims the whole UI behind it
+    /// so this screen is the only focus; scales with the terminal, scrolls
+    /// (↑/↓), action bar pinned at the bottom. Reopen anytime with `h`.
+    fn render_onboarding_modal(&mut self, frame: &mut Frame) {
+        let a = frame.size();
+
+        // 1) Scrim: cover the entire screen with a dim fill so nothing behind
+        //    the welcome screen distracts.
+        self.draw_scrim(frame);
+
+        // 2) Panel: as large as the terminal allows, with its own background
+        //    so it reads as a raised card above the scrim.
+        let panel_w: u16 = 92u16
+            .min(a.width.saturating_sub(4))
+            .max(50)
+            .min(a.width.saturating_sub(4));
+        let panel_h: u16 = 40u16
+            .min(a.height.saturating_sub(2))
+            .max(12)
+            .min(a.height.saturating_sub(2));
+        let x = a.x + (a.width.saturating_sub(panel_w)) / 2;
+        let y = a.y + (a.height.saturating_sub(panel_h)) / 2;
+        let panel = Rect::new(x, y, panel_w, panel_h);
+
+        let body = self.onboarding_body(panel_w);
+        let actions = [
+            "1 Scan this machine",
+            "2 Add a project manually",
+            "3 Skip for now",
+        ];
+        let sel = self
+            .onboarding_selected
+            .min(actions.len().saturating_sub(1));
+
+        let panel_bg = PANEL_BG;
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(PURPLE))
+            .style(Style::default().bg(panel_bg))
+            .title(Span::styled(
+                " Welcome to Matrix ",
+                Style::default().fg(PURPLE).add_modifier(Modifier::BOLD),
+            ))
+            .title_bottom(Span::styled(
+                " ↑↓ scroll · ←/→ action · Enter run · h/Esc close ",
+                Style::default().fg(TEXT_DIM),
+            ));
+        frame.render_widget(Clear, panel);
+        frame.render_widget(block.clone(), panel);
+        let inner = block.inner(panel);
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(0), Constraint::Length(1)])
+            .split(inner);
+        let body_area = chunks[0];
+        let action_area = chunks[1];
+
+        // Render the whole body with built-in wrap + scroll: long lines wrap
+        // to the next row instead of clipping, and ↑/↓ scrolls the laid-out
+        // rows (ratatui scrolls by wrapped rows, not source lines). Clamp the
+        // offset to the body so over-scrolling never blanks the panel.
+        let scroll_y = self.onboarding_scroll.min(body.len().saturating_sub(1)) as u16;
+        frame.render_widget(
+            Paragraph::new(body)
+                .style(Style::default().bg(panel_bg))
+                .wrap(Wrap { trim: false })
+                .scroll((scroll_y, 0)),
+            body_area,
+        );
+
+        // Action bar: the selected entry is highlighted (←/→ to move, Enter
+        // to run, or press 1/2/3 directly).
+        let mut action_spans: Vec<Span> = Vec::new();
+        for (i, label) in actions.iter().enumerate() {
+            let is_sel = i == sel;
+            let st = if is_sel {
+                Style::default()
+                    .bg(PURPLE)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(TEXT)
+            };
+            action_spans.push(Span::styled(format!(" {} ", label), st));
+            action_spans.push(Span::raw("  "));
+        }
+        frame.render_widget(
+            Paragraph::new(Line::from(action_spans)).style(Style::default().bg(panel_bg)),
+            action_area,
+        );
+    }
+
+    /// The guidance body: pixel logo, tagline, and three short sections
+    /// (get started / keys / commands). Bright, high-contrast, easy to scan.
+    fn onboarding_body(&self, panel_w: u16) -> Vec<Line<'static>> {
+        let hdr = |s: &str| {
+            Span::styled(
+                s.to_string(),
+                Style::default().fg(PURPLE).add_modifier(Modifier::BOLD),
+            )
+        };
+        let txt = |s: &str| Span::styled(s.to_string(), Style::default().fg(TEXT));
+        let key = |s: &str| {
+            Span::styled(
+                s.to_string(),
+                Style::default().fg(Color::Rgb(110, 220, 250)),
+            )
+        };
+        let dim = |s: &str| Span::styled(s.to_string(), Style::default().fg(TEXT_DIM));
+        // Brighter purple so the pixel logo pops on the dark panel.
+        let logo_style = Style::default()
+            .fg(Color::Rgb(176, 96, 255))
+            .add_modifier(Modifier::BOLD);
+
+        // Pixel-art "MATRIX" (figlet ANSI Shadow), centered as a block.
+        let logo = [
+            "███╗   ███╗ █████╗ ████████╗██████╗ ██╗██╗  ██╗",
+            "████╗ ████║██╔══██╗╚══██╔══╝██╔══██╗██║╚██╗██╔╝",
+            "██╔████╔██║███████║   ██║   ██████╔╝██║ ╚███╔╝ ",
+            "██║╚██╔╝██║██╔══██║   ██║   ██╔══██╗██║ ██╔██╗ ",
+            "██║ ╚═╝ ██║██║  ██║   ██║   ██║  ██║██║██╔╝ ██╗",
+            "╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝╚═╝  ╚═╝",
+        ];
+        let logo_w = logo.iter().map(|l| l.chars().count()).max().unwrap_or(0);
+        let pad = (panel_w as usize).saturating_sub(logo_w) / 2;
+
+        let mut lines: Vec<Line> = Vec::new();
+        for l in logo {
+            lines.push(Line::from(Span::styled(
+                format!("{}{}", " ".repeat(pad), l),
+                logo_style,
+            )));
+        }
+
+        // Tagline, centered.
+        let tagline = "Matrix runs your dev servers — start, stop, restart, and follow logs.";
+        let tag_pad = (panel_w as usize).saturating_sub(tagline.chars().count()) / 2;
+
+        lines.extend(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                format!("{}{}", " ".repeat(tag_pad), tagline),
+                Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(hdr("  GET STARTED")),
+            Line::from(vec![
+                key("  d"),
+                txt("   scan this machine — add detected projects in one keystroke"),
+            ]),
+            Line::from(vec![
+                key("  :"),
+                txt("   add manually — "),
+                key("project <id> <abs_path> <command>"),
+            ]),
+            Line::from(""),
+            Line::from(hdr("  CONTROL — KEYS")),
+        ]);
+        // Two-column key table, aligned with fixed-width cells so the action
+        // column starts at the same x on every row.
+        let table: [(&str, &str, &str, &str); 5] = [
+            ("Enter", "start / stop", "p", "dev / prod"),
+            ("r", "restart", "H", "host"),
+            ("e", "expand group", "o", "open · c copy"),
+            ("←/→", "switch views", "s", "sidebar · d detect"),
+            (":", "commands", "h", "help · q quit"),
+        ];
+        for (k1, a1, k2, a2) in table {
+            let k1c = format!("  {:<6}", k1);
+            let a1c = format!("{:<17}", a1);
+            let k2c = format!("{:<4}", k2);
+            lines.push(Line::from(vec![key(&k1c), txt(&a1c), key(&k2c), txt(a2)]));
+        }
+        lines.extend(vec![
+            Line::from(""),
+            Line::from(hdr("  COMMANDS")),
+            Line::from(vec![
+                key("  detect"),
+                txt(" · "),
+                key("start"),
+                txt(" · "),
+                key("stop"),
+                txt(" · "),
+                key("restart"),
+                txt(" · "),
+                key("env <id>"),
+                txt(" · "),
+                key("status"),
+                txt(" · "),
+                key("open <url>"),
+                txt(" · "),
+                key("cd"),
+                dim(" · full list: README"),
+            ]),
+            Line::from(""),
+        ]);
+
+        lines
     }
 
     fn render_toasts(&mut self, frame: &mut Frame) {
@@ -563,6 +798,9 @@ impl App {
 
     fn render_detect_modal(&self, frame: &mut Frame) {
         let a = frame.size();
+        // Scrim dims everything behind the modal; the panel carries its own
+        // background so it reads as a raised card.
+        self.draw_scrim(frame);
         // Scale the list with the terminal: use as much vertical space as is
         // available (up to ~60% of the screen), never smaller than 8 rows.
         let max_list_h = (a.height.saturating_mul(6) / 10).clamp(8, 40);
@@ -576,23 +814,35 @@ impl App {
         frame.render_widget(Clear, panel);
 
         if self.detect_candidates.is_empty() {
+            // On a truly fresh machine (zero projects) the generic "everything
+            // is already listed" line would be wrong — point at manual add.
+            let manual = self.manager.get_projects().is_empty();
             let msg = Paragraph::new(vec![
                 Line::from(""),
                 Line::from(Span::styled(
                     "  No new projects found.",
                     Style::default().fg(TEXT_DIM),
                 )),
-                Line::from(Span::styled(
-                    "  Everything on disk is already listed in Matrix.",
-                    Style::default().fg(TEXT_DIM),
-                )),
+                Line::from(if manual {
+                    Span::styled(
+                        "  Add one manually:  :project <id> <abs_path> <command>",
+                        Style::default().fg(TEXT),
+                    )
+                } else {
+                    Span::styled(
+                        "  Everything on disk is already listed in Matrix.",
+                        Style::default().fg(TEXT_DIM),
+                    )
+                }),
                 Line::from(""),
                 Line::from(Span::styled("  Esc to close", Style::default().fg(PURPLE))),
             ])
+            .style(Style::default().bg(PANEL_BG))
             .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(PURPLE))
+                    .style(Style::default().bg(PANEL_BG))
                     .title(Span::styled(
                         " Detect Projects ",
                         Style::default().fg(PURPLE).add_modifier(Modifier::BOLD),
@@ -652,10 +902,11 @@ impl App {
             })
             .collect();
 
-        let list = List::new(items).block(
+        let list = List::new(items).style(Style::default().bg(PANEL_BG)).block(
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(PURPLE))
+                .style(Style::default().bg(PANEL_BG))
                 .title(Span::styled(
                     " Detect Projects ",
                     Style::default().fg(PURPLE).add_modifier(Modifier::BOLD),

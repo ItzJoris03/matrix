@@ -25,6 +25,7 @@ pub const COMMAND_TEMPLATES: &[(&str, &[&str])] = &[
     ("env", &[" <project_id>"]),
     ("open", &[" <url>"]),
     ("detect", &[]),
+    ("welcome", &[]),
 ];
 
 /// Split command arguments into positional values and `-flag` tokens.
@@ -458,6 +459,11 @@ impl App {
             "detect" => {
                 self.open_detect_modal();
                 self.is_command_mode = false;
+            }
+            "welcome" => {
+                self.show_onboarding = true;
+                self.onboarding_selected = 0;
+                self.onboarding_scroll = 0;
             }
             "group" => {
                 if parts.len() >= 3 {

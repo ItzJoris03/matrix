@@ -19,6 +19,7 @@ impl App {
                 // never hijack the universal confirm key.
                 if !self.is_command_mode
                     && !self.show_detect_modal
+                    && !self.show_onboarding
                     && self.update_available.is_some()
                     && !self.update_dismissed
                 {
@@ -88,6 +89,36 @@ impl App {
                         }
                         crate::detect::DetectAction::None => {}
                     }
+                } else if self.show_onboarding {
+                    // Guidance screen owns the keys: ↑/↓ scroll the body,
+                    // ←/→ pick an action, Enter or 1/2/3 runs it, h/Esc closes.
+                    const ONBOARDING_ACTIONS: usize = 3;
+                    match key.code {
+                        KeyCode::Char('j') | KeyCode::Down => {
+                            self.onboarding_scroll = self.onboarding_scroll.saturating_add(1);
+                        }
+                        KeyCode::Char('k') | KeyCode::Up => {
+                            self.onboarding_scroll = self.onboarding_scroll.saturating_sub(1);
+                        }
+                        KeyCode::Left => {
+                            self.onboarding_selected =
+                                (self.onboarding_selected + ONBOARDING_ACTIONS - 1)
+                                    % ONBOARDING_ACTIONS;
+                        }
+                        KeyCode::Right => {
+                            self.onboarding_selected =
+                                (self.onboarding_selected + 1) % ONBOARDING_ACTIONS;
+                        }
+                        KeyCode::Char('1') => self.run_onboarding_action(0),
+                        KeyCode::Char('2') => self.run_onboarding_action(1),
+                        KeyCode::Char('3') => self.run_onboarding_action(2),
+                        KeyCode::Enter => {
+                            let idx = self.onboarding_selected.min(ONBOARDING_ACTIONS - 1);
+                            self.run_onboarding_action(idx);
+                        }
+                        KeyCode::Char('h') | KeyCode::Esc => self.skip_onboarding(),
+                        _ => {}
+                    }
                 } else if self.active_view == ActiveView::EnvEditor {
                     let action = EnvController::handle_key(key, &mut self.env_model);
                     match action {
@@ -150,6 +181,13 @@ impl App {
             }
             KeyCode::Char('d') => {
                 self.open_detect_modal();
+            }
+            // `h` = help: reopen the first-launch guide on demand whenever
+            // the user gets stuck (host mode moved to `H` in the Logs view).
+            KeyCode::Char('h') => {
+                self.show_onboarding = true;
+                self.onboarding_selected = 0;
+                self.onboarding_scroll = 0;
             }
             KeyCode::Left => {
                 let current = self.sidebar_state.selected().unwrap_or(0);

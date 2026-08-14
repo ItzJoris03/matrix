@@ -6,7 +6,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame,
 };
 
@@ -19,13 +19,32 @@ pub fn render(
 ) {
     let statuses = manager.get_statuses();
     if statuses.is_empty() {
-        let empty = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(BORDER))
-            .title(Span::styled(
-                " Projects ",
-                Style::default().fg(PURPLE).add_modifier(Modifier::BOLD),
-            ));
+        // No projects at all (fresh install) — point at the two ways in.
+        let empty = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  No projects yet.",
+                Style::default().fg(TEXT_DIM),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Press d to scan this machine, or : for commands.",
+                Style::default().fg(TEXT),
+            )),
+            Line::from(Span::styled(
+                "  Manual add:  :project <id> <abs_path> <command>",
+                Style::default().fg(TEXT_DIM),
+            )),
+        ])
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(BORDER))
+                .title(Span::styled(
+                    " Projects ",
+                    Style::default().fg(PURPLE).add_modifier(Modifier::BOLD),
+                )),
+        );
         frame.render_widget(empty, area);
         return;
     }

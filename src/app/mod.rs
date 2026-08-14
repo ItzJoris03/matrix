@@ -22,6 +22,13 @@ pub fn matrix_version_display() -> String {
     built.trim_start_matches('v').to_string()
 }
 
+/// Whether the first-launch welcome should auto-show: the user has never been
+/// shown it. Projects do NOT suppress it — the saved flag is the only gate,
+/// so it appears exactly once even for machines that already have projects.
+pub fn needs_onboarding(onboarded: bool) -> bool {
+    !onboarded
+}
+
 /// Pure formatter for the header version. Cargo requires valid semver (no
 /// leading zeros), so `2026.8.12` becomes the user-facing `2026.08.12.0`.
 fn format_version(v: &str) -> String {
@@ -77,6 +84,18 @@ pub struct App {
     /// true = by name.
     pub detect_sort_by_name: bool,
 
+    // First-launch onboarding
+    /// True once the first-launch guidance has been shown (persisted to
+    /// matrix.json at open time). Never auto-shown again once set.
+    pub onboarded: bool,
+    /// Whether the welcome modal is currently visible (first run or `h`).
+    pub show_onboarding: bool,
+    /// Selected onboarding action: 0 scan, 1 manual, 2 skip.
+    pub onboarding_selected: usize,
+    /// Scroll offset into the guidance body (the screen may be taller than
+    /// the terminal; ↑/↓ scrolls).
+    pub onboarding_scroll: usize,
+
     // Performance Optimization
     pub last_sys_refresh: Instant,
 
@@ -106,12 +125,14 @@ impl App {
         manager: Arc<ProcessManager>,
         config_path: String,
         toast_tx: tokio::sync::mpsc::UnboundedSender<crate::common::ToastEvent>,
+        onboarded: bool,
     ) -> Self {
         let mut sidebar_state = ListState::default();
         sidebar_state.select(Some(1));
         let clipboard = Clipboard::new().ok();
+        let show_onboarding = needs_onboarding(onboarded);
 
-        Self {
+        let mut app = Self {
             active_view: ActiveView::Projects,
             previous_view: ActiveView::Projects,
             sidebar_state,
@@ -129,6 +150,10 @@ impl App {
             detect_candidates: Vec::new(),
             detect_selected: 0,
             detect_sort_by_name: false,
+            onboarded,
+            show_onboarding,
+            onboarding_selected: 0,
+            onboarding_scroll: 0,
             last_sys_refresh: Instant::now() - Duration::from_secs(10),
             dashboard_model: DashboardModel::new(),
             projects_model: ProjectsModel::new(),
@@ -141,7 +166,15 @@ impl App {
             toast_tx,
             update_available: None,
             update_dismissed: false,
+        };
+        if app.show_onboarding {
+            // The welcome is about to be shown for the first (and only) time —
+            // persist "shown" immediately so a later launch never auto-shows
+            // it again, even if the user quits without touching anything.
+            app.onboarded = true;
+            app.save_config();
         }
+        app
     }
 
     /// Push a transient toast. Older toasts beyond the cap are dropped.
@@ -331,7 +364,8 @@ impl App {
         self.save_config();
     }
 
-    pub fn save_config(&self) {
+    /// Persist config to disk.
+    pub fn save_config(&mut self) {
         // Config lives in ~/.matrix/, which may not exist yet on first save.
         if let Some(parent) = std::path::Path::new(&self.config_path).parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -340,14 +374,42 @@ impl App {
             projects: self.manager.get_projects(),
             templates: self.manager.get_templates(),
             groups: self.manager.get_groups(),
+            onboarded: self.onboarded,
         };
         let _ = new_config.save(&self.config_path);
+    }
+
+    /// Dismiss the welcome modal. The shown-state was already persisted the
+    /// moment the modal opened, so this only hides it for this session.
+    pub fn skip_onboarding(&mut self) {
+        self.show_onboarding = false;
+    }
+
+    /// Run one of the welcome's actions: 0 = scan for projects, 1 = manual
+    /// add via the command palette, anything else = skip/close.
+    pub fn run_onboarding_action(&mut self, idx: usize) {
+        match idx {
+            0 => {
+                self.show_onboarding = false;
+                self.open_detect_modal();
+            }
+            1 => {
+                self.show_onboarding = false;
+                self.is_command_mode = true;
+                self.command_input = "project ".into();
+                self.command_cursor_position = self.command_input.len();
+                self.selected_suggestion = 0;
+                self.path_suggestions.clear();
+                self.compute_command_matches();
+            }
+            _ => self.show_onboarding = false,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::format_version;
+    use super::{format_version, needs_onboarding};
 
     #[test]
     fn date_version_is_zero_padded_with_revision_slot() {
@@ -379,5 +441,13 @@ mod tests {
     fn non_three_part_versions_render_unchanged() {
         assert_eq!(format_version("2026.8"), "2026.8");
         assert_eq!(format_version("1.0.0-beta.1"), "1.0.0-beta.1");
+    }
+
+    #[test]
+    fn onboarding_auto_shows_exactly_once() {
+        // Never shown before → auto-show, regardless of projects.
+        assert!(needs_onboarding(false));
+        // Already shown once → never auto-show again.
+        assert!(!needs_onboarding(true));
     }
 }

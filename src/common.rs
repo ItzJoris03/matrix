@@ -17,6 +17,11 @@ pub mod theme {
     pub const BORDER: Color = Color::Rgb(48, 48, 58);
     pub const TEXT: Color = Color::Rgb(220, 220, 230);
     pub const TEXT_DIM: Color = Color::Rgb(130, 130, 145);
+    /// Full-screen dim fill behind modal overlays (terminals have no alpha,
+    /// so a solid dark fill is the scrim).
+    pub const SCRIM: Color = Color::Rgb(12, 10, 18);
+    /// Raised-card background for modal panels drawn above the scrim.
+    pub const PANEL_BG: Color = Color::Rgb(26, 22, 36);
     pub const GREEN: Color = Color::Rgb(80, 220, 120);
     pub const RED: Color = Color::Rgb(240, 90, 90);
     pub const YELLOW: Color = Color::Rgb(240, 200, 90);

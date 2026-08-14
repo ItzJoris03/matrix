@@ -1,6 +1,6 @@
 [package]
 name = "matrix"
-version = "2026.8.13"
+version = "2026.8.14"
 edition = "2021"
 description = "High-performance, logic-driven dev engine and TUI"
 license = "GPL-3.0-or-later"

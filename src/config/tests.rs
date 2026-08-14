@@ -23,6 +23,7 @@ fn test_config_load_save() {
             projects: vec!["test".to_string()],
         }],
         groups: vec![],
+        onboarded: false,
     };
 
     let path = "test_matrix.json";
@@ -107,6 +108,7 @@ fn backend_and_env_round_trip() {
         }],
         templates: vec![],
         groups: vec![],
+        onboarded: false,
     };
 
     let path = "test_backend.json";
@@ -173,6 +175,7 @@ fn normalize_paths_resolves_relative_paths_against_base() {
         ],
         templates: vec![],
         groups: vec![],
+        onboarded: false,
     };
 
     let base = std::path::Path::new("/home/user/.matrix");
@@ -205,4 +208,36 @@ fn default_config_path_points_at_home_matrix_dir() {
         s.starts_with('/'),
         "expected an absolute per-device path, got: {s}"
     );
+}
+
+#[test]
+fn onboarded_round_trips_through_save_load() {
+    let config = MatrixConfig {
+        projects: vec![],
+        templates: vec![],
+        groups: vec![],
+        onboarded: true,
+    };
+    let path = "test_onboarded.json";
+    config.save(path).unwrap();
+    let loaded = MatrixConfig::load(path).unwrap();
+    assert!(loaded.onboarded, "onboarded flag must survive save/load");
+    fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn legacy_config_without_onboarded_field_defaults_to_false() {
+    // Configs written before first-launch guidance existed have no onboarded
+    // key — they must load as a fresh install (onboarded = false), which is
+    // exactly what gates the welcome modal when projects are also empty.
+    let json = r#"{
+            "projects": [],
+            "templates": [],
+            "groups": []
+        }"#;
+    let path = "test_legacy_no_onboarded.json";
+    fs::write(path, json).unwrap();
+    let loaded = MatrixConfig::load(path).unwrap();
+    assert!(!loaded.onboarded, "missing onboarded must default to false");
+    fs::remove_file(path).unwrap();
 }

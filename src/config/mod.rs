@@ -95,6 +95,10 @@ pub struct MatrixConfig {
     pub projects: Vec<Project>,
     pub templates: Vec<Template>,
     pub groups: Vec<Group>,
+    /// First-launch guidance has been shown/completed. Defaults to false, so a
+    /// config written before this field existed behaves as a fresh install.
+    #[serde(default)]
+    pub onboarded: bool,
 }
 
 impl MatrixConfig {

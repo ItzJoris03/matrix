@@ -217,7 +217,7 @@ Lines stream in at the bottom, word-wrapped to your terminal width. ANSI colors 
 | Key | Action |
 |-----|--------|
 | `r` | Restart the selected source. |
-| `h` | Toggle **host mode** for the selected source (restarts the process with `--host` so it listens on all interfaces — needed for testing from other devices on your network). |
+| `H` | Toggle **host mode** for the selected source (restarts the process with `--host` so it listens on all interfaces — needed for testing from other devices on your network). |
 | `p` | Toggle **dev/prod mode** for the selected source (swaps the run command and restarts). |
 
 The badge next to the source name shows the current mode: `[DEV]` or `[PROD]`, plus a host-mode indicator.
@@ -273,6 +273,7 @@ Press `:` to open the command palette. As you type, commands are filtered by pre
 | `env <project_id>` | Open the environment editor for a project. |
 | `open <url>` | Open a URL in the default browser. |
 | `detect` | Open the Detect-Projects modal. |
+| `welcome` | Reopen the welcome / help screen (`h` also opens it). |
 
 Path suggestions appear automatically for arguments that take paths (`project <path>`, `cd <path>`) and complete with `Tab`.
 
